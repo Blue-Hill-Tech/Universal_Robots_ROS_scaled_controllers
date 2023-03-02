@@ -48,7 +48,7 @@ public:
     typename Base::TrajectoryPtr curr_traj_ptr;
     this->curr_trajectory_box_.get(curr_traj_ptr);
     typename Base::Trajectory& curr_traj = *curr_traj_ptr;
-
+    static typename Base::TrajectoryPtr active_traj_prt = curr_traj_ptr;
     // Update time data
     typename Base::TimeData time_data;
     time_data.time = time;                                                        // Cache current time
@@ -74,6 +74,26 @@ public:
 
       typename Base::TrajectoryPerJoint::const_iterator segment_it =
           sample(curr_traj[i], traj_time.toSec(), this->desired_joint_state_);
+      if(i == 0) {
+        static int tracking_index = 0;
+        static auto tracking_time = segment_it->endTime();
+        if(active_traj_prt != curr_traj_ptr) {
+          tracking_index = 0;
+          tracking_time = segment_it->endTime();
+          active_traj_prt = curr_traj_ptr;
+        }
+        for(tracking_index; tracking_index < curr_traj[i].size(); tracking_index++) {
+          if(traj_time.toSec() < curr_traj[i][tracking_index].endTime()) {
+            break;
+          } else {
+            // Update current tracking status
+            std_msgs::Header status_msg;
+            status_msg.stamp = ros::Time::now();
+            status_msg.seq = tracking_index;
+            status_pub_.publish(status_msg);
+          }
+        }
+      }
       if (curr_traj[i].end() == segment_it)
       {
         // Non-realtime safe, but should never happen under normal operation
@@ -127,7 +147,6 @@ public:
             ROS_DEBUG_STREAM_THROTTLE_NAMED(1, this->name_,
                                             "Finished executing last segment, checking goal "
                                             "tolerances");
-
           // Controller uptime
           const ros::Time uptime = this->time_data_.readFromRT()->uptime;
 
@@ -199,6 +218,8 @@ public:
 protected:
   using Base = joint_trajectory_controller::JointTrajectoryController<SegmentImpl, HardwareInterface>;
   double scaling_factor_;
+  ros::NodeHandle nh_;
+  ros::Publisher status_pub_ = nh_.advertise<std_msgs::Header>("/scaled_pos_joint_traj_controller/tracking_status", 1);
 
 private:
   /* data */
