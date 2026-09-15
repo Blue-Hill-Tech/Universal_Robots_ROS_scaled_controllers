@@ -29,7 +29,9 @@
 #define SCALED_JOINT_TRAJECTORY_CONTROLLER_SCALED_TRAJECTORY_CONTROLLER_H_INCLUDED
 
 #include "scaled_joint_trajectory_controller/hardware_interface_adapter.h"
+#include "scaled_joint_trajectory_controller/goal_phase.h"
 #include <joint_trajectory_controller/joint_trajectory_controller.h>
+#include <std_msgs/Header.h>
 
 namespace scaled_controllers
 {
@@ -65,6 +67,10 @@ public:
     // we fetch the currently followed trajectory, it has been updated by the non-rt thread with something that starts
     // in the next control cycle, leaving the current cycle without a valid trajectory.
 
+    // A phase is meaningful only when every sampled segment belongs to the
+    // active action goal. Retained/hold segments must not impersonate that goal.
+    bool sampled_active_goal = true;
+    double goal_phase = -1.0;
     // Update current state and state error
     for (unsigned int i = 0; i < this->joints_.size(); ++i)
     {
@@ -74,6 +80,22 @@ public:
 
       typename Base::TrajectoryPerJoint::const_iterator segment_it =
           sample(curr_traj[i], traj_time.toSec(), this->desired_joint_state_);
+      if (curr_traj[i].end() == segment_it)
+      {
+        ROS_ERROR_NAMED(this->name_, "No trajectory defined at sample time");
+        return;
+      }
+      const auto sampled_goal = segment_it->getGoalHandle();
+      sampled_active_goal = sampled_active_goal && sampled_goal &&
+          sampled_goal == this->rt_active_goal_ &&
+          curr_traj[i].back().getGoalHandle() == sampled_goal;
+      if (i == 0 && sampled_active_goal)
+      {
+        const auto& points = sampled_goal->gh_.getGoal()->trajectory.points;
+        goal_phase = points.empty() ? -1.0 : goal_sample_phase(
+            traj_time.toSec(), curr_traj[i].back().endTime(),
+            points.back().time_from_start.toSec());
+      }
       if(i == 0) {
         static int tracking_index = 0;
         static auto tracking_time = segment_it->endTime();
@@ -93,14 +115,6 @@ public:
             status_pub_.publish(status_msg);
           }
         }
-      }
-      if (curr_traj[i].end() == segment_it)
-      {
-        // Non-realtime safe, but should never happen under normal operation
-        ROS_ERROR_NAMED(this->name_, "Unexpected error: No trajectory defined at current time. Please contact the "
-                                     "package "
-                                     "maintainer.");
-        return;
       }
       this->desired_state_.position[i] = this->desired_joint_state_.position[0];
       this->desired_state_.velocity[i] = this->desired_joint_state_.velocity[0];
@@ -201,6 +215,14 @@ public:
     if (current_active_goal)
     {
       current_active_goal->preallocated_feedback_->header.stamp = this->time_data_.readFromRT()->time;
+      // Existing clients keep their positions/velocities unchanged. Consumers
+      // of v1 use actual.time_from_start as the goal-scoped sample clock.
+      auto& feedback = *current_active_goal->preallocated_feedback_;
+      feedback.header.frame_id = sampled_active_goal && goal_phase >= 0.0 ?
+          "ur_phase_v1" : "";
+      feedback.actual.time_from_start = ros::Duration(std::max(0.0, goal_phase));
+      feedback.desired.time_from_start = feedback.actual.time_from_start;
+      feedback.error.time_from_start = ros::Duration(0);
       current_active_goal->preallocated_feedback_->desired.positions = this->desired_state_.position;
       current_active_goal->preallocated_feedback_->desired.velocities = this->desired_state_.velocity;
       current_active_goal->preallocated_feedback_->desired.accelerations = this->desired_state_.acceleration;
