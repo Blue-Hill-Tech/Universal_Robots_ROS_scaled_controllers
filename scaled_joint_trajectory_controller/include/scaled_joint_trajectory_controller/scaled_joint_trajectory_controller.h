@@ -82,6 +82,7 @@ public:
           sample(curr_traj[i], traj_time.toSec(), this->desired_joint_state_);
       if (curr_traj[i].end() == segment_it)
       {
+        // Non-realtime safe, but should never happen under normal operation.
         ROS_ERROR_NAMED(this->name_, "No trajectory defined at sample time");
         return;
       }
@@ -91,7 +92,10 @@ public:
           curr_traj[i].back().getGoalHandle() == sampled_goal;
       if (i == 0 && sampled_active_goal)
       {
-        const auto& points = sampled_goal->gh_.getGoal()->trajectory.points;
+        // Provisional joint-0 phase; only the final all-joint gate below may
+        // mark it valid. A later joint can still disqualify this sample.
+        const auto goal = sampled_goal->gh_.getGoal();
+        const auto& points = goal->trajectory.points;
         goal_phase = points.empty() ? -1.0 : goal_sample_phase(
             traj_time.toSec(), curr_traj[i].back().endTime(),
             points.back().time_from_start.toSec());
@@ -218,6 +222,7 @@ public:
       // Existing clients keep their positions/velocities unchanged. Consumers
       // of v1 use actual.time_from_start as the goal-scoped sample clock.
       auto& feedback = *current_active_goal->preallocated_feedback_;
+      // sampled_active_goal now includes every joint, not just joint 0.
       feedback.header.frame_id = sampled_active_goal && goal_phase >= 0.0 ?
           "ur_phase_v1" : "";
       feedback.actual.time_from_start = ros::Duration(std::max(0.0, goal_phase));
