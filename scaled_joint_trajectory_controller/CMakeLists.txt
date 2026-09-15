@@ -188,3 +188,9 @@ install(FILES controller_plugins.xml
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(goal_phase_test test/goal_phase_test.cpp)
+  if(TARGET goal_phase_test)
+    target_link_libraries(goal_phase_test gtest_main ${catkin_LIBRARIES})
+  endif()
+endif()
