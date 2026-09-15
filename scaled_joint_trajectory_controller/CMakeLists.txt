@@ -191,6 +191,6 @@ install(FILES controller_plugins.xml
 if(CATKIN_ENABLE_TESTING)
   catkin_add_gtest(goal_phase_test test/goal_phase_test.cpp)
   if(TARGET goal_phase_test)
-    target_link_libraries(goal_phase_test ${catkin_LIBRARIES})
+    target_link_libraries(goal_phase_test gtest_main ${catkin_LIBRARIES})
   endif()
 endif()
