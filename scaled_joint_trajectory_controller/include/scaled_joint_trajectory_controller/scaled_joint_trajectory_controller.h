@@ -74,6 +74,14 @@ public:
 
       typename Base::TrajectoryPerJoint::const_iterator segment_it =
           sample(curr_traj[i], traj_time.toSec(), this->desired_joint_state_);
+      if (curr_traj[i].end() == segment_it)
+      {
+        // Non-realtime safe, but should never happen under normal operation
+        ROS_ERROR_NAMED(this->name_, "Unexpected error: No trajectory defined at current time. Please contact the "
+                                     "package "
+                                     "maintainer.");
+        return;
+      }
       if(i == 0) {
         static int tracking_index = 0;
         static auto tracking_time = segment_it->endTime();
@@ -93,14 +101,6 @@ public:
             status_pub_.publish(status_msg);
           }
         }
-      }
-      if (curr_traj[i].end() == segment_it)
-      {
-        // Non-realtime safe, but should never happen under normal operation
-        ROS_ERROR_NAMED(this->name_, "Unexpected error: No trajectory defined at current time. Please contact the "
-                                     "package "
-                                     "maintainer.");
-        return;
       }
       this->desired_state_.position[i] = this->desired_joint_state_.position[0];
       this->desired_state_.velocity[i] = this->desired_joint_state_.velocity[0];
